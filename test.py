@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from not_evil import Matcher
+from pattern_matching import Matcher
 
 
 @dataclass
 class Quoted:
     arg1: Any
     arg2: Any = None
+    arg3: Any = None
 
 
 @dataclass
@@ -23,7 +24,7 @@ class String:
 
 match = Matcher(Quoted, Name, String, A='Another String')
 
-m = match(Quoted(Name("na")))
+m = match(Quoted(Name("na"), String("val"), String("val")))
 if m.case('Quoted(Name(name))'):
     print(1, m.name)
 elif m.case('Quoted(Name(name), String(value))'):
@@ -33,4 +34,4 @@ elif m.case('Quoted(something_else)'):
 elif m.case('A'):
     print(4)
 else:
-    print(5)
+    print(5, m.__value__)

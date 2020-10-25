@@ -2,6 +2,9 @@ from __future__ import annotations
 
 """
 
+A subset of [withhacks](https://github.com/rfk/withhacks)
+
+
   withhacks:  building blocks for with-statement-related hackery
 
 This module is a collection of useful building-blocks for hacking the Python
@@ -12,47 +15,99 @@ I found around the internet into a suite of re-usable components:
   * http://billmill.org/multi_line_lambdas.html
   * http://code.google.com/p/ouspg/wiki/AnonymousBlocksInPython
 
-By subclassing the appropriate context managers from this module, you can
-easily do things such as:
-
-  * skip execution of the code inside the with-statement
-  * set local variables in the frame executing the with-statement
-  * capture the bytecode from inside the with-statement
-  * capture local variables defined inside the with-statement
-
-Building on these basic tools, this module also provides some useful prebuilt
-hacks:
-
-  :xargs:      call a function with additional arguments defined in the
-               body of the with-statement
-  :xkwargs:    call a function with additional keyword arguments defined
-               in the body of the with-statement
-  :namespace:  direct all variable accesses and assignments to the attributes
-               of a given object (like "with" in JavaScript or VB)
-  :keyspace:   direct all variable accesses and assignments to the keys of
-               of a given object (like namespace() but for dicts)
-
-WithHacks makes extensive use of Noam Raphael's fantastic "byteplay" module;
-since the official byteplay distribution doesn't support Python 2.6, a local
-version with appropriate patches is included in this module.
-
 """
-
-__ver_major__ = 0
-__ver_minor__ = 1
-__ver_patch__ = 1
-__ver_sub__ = ""
-__version__ = "%d.%d.%d%s" % (__ver_major__, __ver_minor__,
-                              __ver_patch__, __ver_sub__)
-
 import sys
-
 try:
     import threading
 except ImportError:
     import dummy_threading as threading
 
-from frameutils import *
+
+
+__all__ = ["inject_trace_func", "load_name"]
+
+_trace_lock = threading.Lock()
+_orig_sys_trace = None
+_orig_trace_funcs = {}
+_injected_trace_funcs = {}
+
+
+def _dummy_sys_trace(*args,**kwds):
+    """Dummy trace function used to enable tracing."""
+    pass
+
+
+def _enable_tracing():
+    """Enable system-wide tracing, if it wasn't already."""
+    global _orig_sys_trace
+    try:
+        _orig_sys_trace = sys.gettrace()
+    except AttributeError:
+        _orig_sys_trace = None
+    if _orig_sys_trace is None:
+        sys.settrace(_dummy_sys_trace)
+
+
+def _disable_tracing():
+    """Disable system-wide tracing, if we specifically switched it on."""
+    global _orig_sys_trace
+    if _orig_sys_trace is None:
+        sys.settrace(None)
+
+
+def inject_trace_func(frame,func):
+    """Inject the given function as a trace function for frame.
+
+    The given function will be executed immediately as the frame's execution
+    resumes.  Since it's running inside a trace hook, it can do some nasty
+    things like modify frame.f_locals, frame.f_lasti and friends.
+    """
+    with _trace_lock:
+        if frame.f_trace is not _invoke_trace_funcs:
+            _orig_trace_funcs[frame] = frame.f_trace
+            frame.f_trace = _invoke_trace_funcs
+            _injected_trace_funcs[frame] = []
+            if len(_orig_trace_funcs) == 1:
+                _enable_tracing()
+    _injected_trace_funcs[frame].append(func)
+
+
+def _invoke_trace_funcs(frame,*args,**kwds):
+    """Invoke any trace funcs that have been injected.
+
+    Once all injected functions have been executed, the trace hooks are
+    removed.  Hopefully this will keep the overhead of all this madness
+    to a minimum :-)
+    """
+    try:
+        for func in _injected_trace_funcs[frame]:
+            func(frame)
+    finally:
+        del _injected_trace_funcs[frame]
+        with _trace_lock:
+            if len(_orig_trace_funcs) == 1:
+                _disable_tracing()
+            frame.f_trace = _orig_trace_funcs.pop(frame)
+
+
+def load_name(frame,name):
+    """Get the value of the named variable, as seen by the given frame.
+
+    The name is first looked for in f_locals, then f_globals, and finally
+    f_builtins.  If it's not defined in any of these scopes, NameError 
+    is raised.
+    """
+    try:
+        return frame.f_locals[name]
+    except KeyError:
+        try:
+            return frame.f_globals[name]
+        except KeyError:
+            try:
+                return frame.f_builtins[name]
+            except KeyError:
+                raise NameError(name)
+
 
 
 class _ExitContext(Exception):
@@ -63,11 +118,6 @@ class _ExitContext(Exception):
 def _exit_context(frame):
     """Simple function to throw an _ExitContext exception."""
     raise _ExitContext
-
-
-class _Bucket:
-    """Anonymous attribute-bucket class."""
-    pass
 
 
 class WithHack(object):
@@ -140,6 +190,7 @@ class WithHack(object):
         probably do the same - the simplest way is to pass through the return
         value given by this base implementation.
         """
+        self.__frame = None
         if exc_type is _ExitContext:
             return True
         else:
