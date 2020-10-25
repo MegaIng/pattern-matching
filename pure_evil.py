@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from pattern_engine import parse
+from pattern_engine import parse_pattern
 from withhacks import WithHack
 
 
@@ -19,7 +19,7 @@ class match(WithHack):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._set_context_locals({'__match_obj__': None})
         return super(match, self).__exit__(exc_type, exc_val, exc_tb)
-    
+
     def _get(self, name: str):
         f = self._get_context_frame()
         if name in f.f_locals:
@@ -33,14 +33,13 @@ class match(WithHack):
 
     def case(self, pattern):
         assert isinstance(pattern, str)
-        pt = parse(pattern)
-        b,var = pt.match(self.value, self._get)
+        pt = parse_pattern(pattern)
+        b, var = pt.match(self.value, self._get)
         if b:
             self._set_context_locals(var)
             return True
         else:
             return False
-        
 
 
 def case(*args, **kwargs):

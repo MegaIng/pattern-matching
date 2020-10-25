@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from _ast import Expression, Constant, Load
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, InitVar
 from functools import lru_cache
@@ -17,7 +16,7 @@ def _get_construction_arguments(t: type, val: Any) -> Iterable[tuple[bool, Any],
         v = getattr(val, f.name)
         is_optional = f.default == v
         yield is_optional, v
-    
+
 
 @dataclass(frozen=True)
 class Pattern(ABC):
@@ -49,6 +48,7 @@ class PtConstantVar(Pattern):
     def match(self, value: Any, get: Callable[[str], Any]) -> tuple[bool, dict[str, Any]]:
         return get(self.name) == value, {}
 
+
 @dataclass(frozen=True)
 class PtConstruction(Pattern):
     name: str
@@ -68,14 +68,12 @@ class PtConstruction(Pattern):
                     if not is_optional:
                         return False, {}
                 else:
-                    cb,cvar = arg.match(val, get)
+                    cb, cvar = arg.match(val, get)
                     if not cb:
                         return False, {}
                     else:
                         out.update(cvar)
             return True, out
-
-        
 
 
 parser = Lark("""
@@ -85,7 +83,7 @@ pattern: "None" -> none
        | VAR_NAME -> var
        | CON_NAME -> named_const
        | MIXED_NAME "(" (pattern ("," pattern)* ","?)? ")" -> construction
-       | STRING -> str
+       | STRING -> string
        | NUMBER -> number
 
 VAR_NAME: "_" | /[a-z][a-z_0-9]*/
@@ -96,19 +94,37 @@ MIXED_NAME: /[a-zA-Z_][a-zA-Z_0-9]*/
 %ignore " "+
 """, start='pattern')
 
+
 @v_args(inline=True)
 class ToPattern(Transformer[Pattern]):
     def __default__(self, data, children, meta):
         raise NotImplementedError((data, children, meta))
-    
+
     def var(self, name: Token) -> Pattern:
         return PtVariable(name.value)
-    
+
     def construction(self, name: Token, *args: Pattern) -> Pattern:
         return PtConstruction(name.value, args)
 
+    def named_const(self, val: Token):
+        return PtConstantVar(val.value)
+
+    def none(self):
+        return PtConstant(None)
+
+    def true(self):
+        return PtConstant(True)
+
+    def false(self):
+        return PtConstant(False)
+
+    def number(self, t: Token):
+        return PtConstant(eval(t.value))
+    
+    def string(self, t: Token):
+        return PtConstant(eval(t.value))
 
 @lru_cache()
-def parse(s: str) -> Pattern:
+def parse_pattern(s: str) -> Pattern:
     st = parser.parse(s)
     return ToPattern().transform(st)
