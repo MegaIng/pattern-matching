@@ -9,16 +9,10 @@ class _Match:
     def __init__(self, matcher: Matcher, value: Any):
         self.__matcher__ = matcher
         self.__value__ = value
-        self.__matched__ = False
         self.__vars__ = None
 
-    def __getattribute__(self, item):
-        if item[:2] == item[-2:] == '__':
-            return super(_Match, self).__getattribute__(item)
-        if self.__matched__:
-            return self.__vars__[item]
-        else:
-            return super(_Match, self).__getattribute__(item)
+    def __getattr__(self, item):
+        return self.__vars__[item]
 
     def __matmul__(self, other: str):
         return self.case(other)
@@ -34,7 +28,6 @@ class _Match:
         pt = parse_pattern(pattern)
         var = pt.match(self.__value__, self.__matcher__._get)
         if var is not None:
-            self.__matched__ = True
             self.__vars__ = var
             return True
         else:

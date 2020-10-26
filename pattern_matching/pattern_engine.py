@@ -3,8 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, InitVar, is_dataclass
 from functools import lru_cache
-from itertools import zip_longest
-from typing import Callable, Any, Iterable, Sequence, Optional
+from itertools import zip_longest, takewhile
+from typing import Callable, Any, Iterable, Sequence, Optional, Mapping
 
 from lark import Lark, Transformer, v_args, Token
 
@@ -19,6 +19,7 @@ KNOWN_CONSTRUCTIONS = {
     bytearray: _self_construction,
 }
 
+
 def _dataclass_construction(t, val) -> Iterable[tuple[bool, Any]]:
     for f in fields(t):
         if isinstance(f.type, InitVar) or not f.init:
@@ -32,7 +33,7 @@ def _get_construction(t, val: Any) -> Iterable[tuple[bool, Any], ...]:
     if t in KNOWN_CONSTRUCTIONS:
         yield from KNOWN_CONSTRUCTIONS[t](t, val)
     elif is_dataclass(t):
-        return _dataclass_construction(t, val)
+        yield from _dataclass_construction(t, val)
     else:
         try:
             yield from t.__get_construction__(val)
@@ -94,19 +95,103 @@ class PtConstruction(Pattern):
                     if cvar is None:
                         return None
                     else:
-                        out.update(cvar)
-            return True, out
+                        out |= cvar
+            return out
+
+
+def _match_all(pts: tuple[Pattern, ...], value: Any, get) -> Optional[dict[str, Any]]:
+    out = {}
+    for e, v in zip_longest(pts, value):
+        cvar = e.match(v, get)
+        if cvar is None:
+            return None
+        else:
+            out |= cvar
+    return out
+
+
+@dataclass(frozen=True)
+class PtFixedSequence(Pattern):
+    elements: tuple[Pattern, ...]
+
+    def match(self, value: Any, get: Callable[[str], Any]) -> Optional[dict[str, Any]]:
+        if not isinstance(value, Sequence):
+            return None
+        if len(value) != len(self.elements):
+            return None
+        return _match_all(self.elements, value, get)
+
+@dataclass(frozen=True)
+class PtMapping(Pattern):
+    elements: tuple[tuple[Any, Pattern], ...]
+    star: str = None
+
+    def match(self, value: Any, get: Callable[[str], Any]) -> Optional[dict[str, Any]]:
+        if not isinstance(value, Mapping):
+            return None
+        out = {}
+        used = set()
+        for kp, vp in self.elements:
+            if isinstance(kp, PtConstantVar):
+                kp = get(kp.name)
+            if kp not in value:
+                return None
+            cvar = vp.match(value[kp], get)
+            if cvar is None:
+                return None
+            out |= cvar
+            used.add(kp)
+        if self.star is not None:
+            out[self.star] = {k:v for k, v in value.items() if k not in used}
+        return out
+
+
+@dataclass(frozen=True)
+class PtVariableSequence(Pattern):
+    pre: tuple[Pattern, ...]
+    star: str
+    post: tuple[Pattern, ...]
+
+    def match(self, value: Any, get: Callable[[str], Any]) -> Optional[dict[str, Any]]:
+        if not isinstance(value, Sequence):
+            return None
+        if len(value) < len(self.pre) + len(self.post):
+            return None
+        pre_val = value[:len(self.pre)]
+        post_val = value[len(value) - len(self.post):]  # -len(self.post) is not enough, since `-0` is equivalent to `0`
+        star_val = value[len(self.pre):len(value) - len(self.post)]
+        pre_out = _match_all(self.pre, pre_val, get)
+        if pre_out is None:
+            return None
+        post_out = _match_all(self.post, post_val, get)
+        if post_out is None:
+            return None
+
+        return pre_out | {self.star: star_val} | post_out
 
 
 parser = Lark("""
-pattern: "None" -> none
+pattern: literal -> constant
+       | VAR_NAME -> var
+       | MIXED_NAME "(" (pattern ("," pattern)* ","?)? ")" -> construction
+       | "[" _sequence "]" -> sequence
+       | "(" (seq_item "," _sequence)? ")" -> sequence
+       | "{" (mapping_item ("," mapping_item)* ","?)?"}" -> mapping
+       | "{" (mapping_item ("," mapping_item)* ",")? "**" VAR_NAME ","? "}" -> mapping_star
+
+
+literal: "None" -> none
        | "True" -> true
        | "False" -> false
-       | VAR_NAME -> var
        | CON_NAME -> named_const
-       | MIXED_NAME "(" (pattern ("," pattern)* ","?)? ")" -> construction
        | STRING -> string
        | NUMBER -> number
+
+mapping_item: literal ":" pattern
+
+_sequence: (seq_item ("," seq_item)* ","?)?
+?seq_item: pattern
+         | "*" VAR_NAME -> start_pattern
 
 VAR_NAME: "_" | /[a-z][a-z_0-9]*/
 CON_NAME: /[A-Z][A-Z0-9_]*/
@@ -132,19 +217,47 @@ class ToPattern(Transformer[Pattern]):
         return PtConstantVar(val.value)
 
     def none(self):
-        return PtConstant(None)
+        return None
 
     def true(self):
-        return PtConstant(True)
+        return True
 
     def false(self):
-        return PtConstant(False)
+        return False
 
     def number(self, t: Token):
-        return PtConstant(eval(t.value))
+        return eval(t.value)
 
     def string(self, t: Token):
-        return PtConstant(eval(t.value))
+        return eval(t.value)
+    
+    def constant(self, val: Any):
+        if isinstance(val, Pattern):
+            return val
+        else:
+            return PtConstant(val)
+    
+    def mapping(self, *elements):
+        return PtMapping(elements)
+    
+    def mapping_star(self, *elements):
+        return PtMapping(elements[:-1], elements[-1].value)
+
+    def mapping_item(self, key: Any, val: Any):
+        return key, val
+
+    def sequence(self, *children: Pattern):
+        if any(isinstance(c, str) for c in children):
+            pre = tuple(takewhile(lambda c: not isinstance(c, str), children))
+            star = children[len(pre)]
+            post = children[len(pre) + 1:]
+            assert not any(isinstance(c, str) for c in post)
+            return PtVariableSequence(pre, star, post)
+        else:
+            return PtFixedSequence(children)
+
+    def start_pattern(self, name: Token):
+        return name.value
 
 
 @lru_cache()

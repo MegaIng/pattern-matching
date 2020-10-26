@@ -1,37 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Union
 
 from pattern_matching import Matcher
 
-
 @dataclass
-class Quoted:
-    arg1: Any
-    arg2: Any = None
-    arg3: Any = None
+class Tree:
+    data: str
+    children: list[Union[Tree, str]]
 
 
-@dataclass
-class Name:
-    name: str
+match = Matcher(Tree)
+with match(Tree('return', [Tree('var', ['a']), Tree('var', ['b'])])) as m:
+    if m.case('Tree("return", [])'):
+        print("empty return")
+    elif m.case('Tree("return", [Tree("var", [a])])'):
+        print("return single var:", m.a)
+    elif m.case('Tree("return", [a])'):
+        print("return single expr:", m.a)
+    elif m.case('Tree("return", [*a])'):
+        print("return multiple values:", m.a)
 
-
-@dataclass
-class String:
-    s: str
-
-match = Matcher(Quoted, Name, String, A='Another String')
-
-m = match(Quoted(Name("na"), String("val"), String("val")))
-if m.case('Quoted(Name(name))'):
-    print(1, m.name)
-elif m.case('Quoted(Name(name), String(value))'):
-    print(2, m.name, m.value)
-elif m.case('Quoted(something_else)'):
-    print(3, m.something_else)
-elif m.case('A'):
-    print(4)
-else:
-    print(5, m.__value__)
+with match({"a": 0, 1: "b"}) as m:
+    if m.case('{"a": a, **kw}'):
+        print(m.a, m.kw)
+    if m.case('{}'):
+        print(m.__value__)
