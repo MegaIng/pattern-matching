@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pattern_matching.pattern_engine import parse_pattern
+from pattern_matching.pattern_engine import str2pattern
 
 
 class _Match:
@@ -25,7 +25,7 @@ class _Match:
 
     def case(self, pattern: str):
         assert isinstance(pattern, str)
-        pt = parse_pattern(pattern)
+        pt = str2pattern(pattern)
         var = pt.match(self.__value__, self.__matcher__._get)
         if var is not None:
             self.__vars__ = var

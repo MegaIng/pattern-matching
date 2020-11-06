@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from pattern_matching.pattern_engine import parse_pattern
+from pattern_matching.pattern_engine import str2pattern
 from pattern_matching.withhacks import WithHack, load_name
 
 
@@ -32,7 +32,7 @@ class match(WithHack):
 
     def case(self, pattern):
         assert isinstance(pattern, str)
-        pt = parse_pattern(pattern)
+        pt = str2pattern(pattern)
         var = pt.match(self.value, self._get)
         if var is not None:
             self._set_context_locals(var)

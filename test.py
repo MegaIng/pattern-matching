@@ -12,7 +12,7 @@ class Tree:
 
 
 match = Matcher(Tree)
-with match(Tree('return', [Tree('var', ['a']), Tree('var', ['b'])])) as m:
+with match(Tree('return', [Tree("number", [0])])) as m:
     if m.case('Tree("return", [])'):
         print("empty return")
     elif m.case('Tree("return", [Tree("var", [a])])'):
@@ -21,6 +21,8 @@ with match(Tree('return', [Tree('var', ['a']), Tree('var', ['b'])])) as m:
         print("return single expr:", m.a)
     elif m.case('Tree("return", [*a])'):
         print("return multiple values:", m.a)
+    else:
+        print(m.__value__)
 
 with match({"a": 0, 1: "b"}) as m:
     if m.case('{"a": a, **kw}'):
