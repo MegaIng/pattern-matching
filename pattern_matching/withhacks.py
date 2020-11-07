@@ -61,7 +61,7 @@ def inject_trace_func(frame, func):
 
     The given function will be executed immediately as the frame's execution
     resumes.  Since it's running inside a trace hook, it can do some nasty
-    things like modify frame.f_locals, frame.f_lasti and friends.
+    things like modify frame.f_locals, frame.f_lineno and friends.
     """
     with _trace_lock:
         if frame.f_trace is not _invoke_trace_funcs:
@@ -139,15 +139,48 @@ class WithHack(object):
 
     dont_execute = False
     must_execute = False
+    _missing_marker = object()
+    
+    def __init__(self):
+        self.__to_reset__ = {}
 
     def _set_context_locals(self, locals: dict[str, Any]):
         """Set local variables in the with-statement context.
 
         The argument "locals" is a dictionary of name bindings to be inserted
         into the execution context of the with-statement.
+        
+        This tries to be as smart as possible to reduce the chance of surprises (e.g. conflict between lookup in locals/globals)
         """
-        inject_trace_func(self.__frame__, lambda frame: frame.f_locals.update(locals))
-
+        
+        # The naive approach as used by the old withhacks doesn't work:
+        # def main():
+        #     with Inject(x=5):
+        #         print(x)
+        #
+        # If we just update the f_locals, x will still not be accessible. The bytecode compiler didn't consider it a local variable,
+        # and therefore it is just looked up in the globals.
+        # To get around this we need to check whether or not a variable is considered local and then behave diffrently depending on that
+        # Since we might inject globals from within a function, we also need to cleanup at the end of the withblock.
+        # Note that this might override some globals as seen in child functions. Too bad! We just need to put a warning somewhere.
+        
+        f = self.__frame__
+        if f.f_locals is f.f_globals: # we are in global scope. We don't need to worry and the old approach works
+            inject_trace_func(f, lambda frame: frame.f_locals.update(locals))
+        else:
+            c = f.f_code
+            lcl_vars = set(c.co_varnames)
+            store_local = set(locals.keys()) & lcl_vars
+            store_global = set(locals.keys()) - store_local
+            self.__to_reset__ |= {n:f.f_globals.get(n, self._missing_marker) for n in store_global}
+            def set_vars(frame):
+                for n,v in locals.items():
+                    if n in store_local:
+                        frame.f_locals[n] = v
+                    else:
+                        frame.f_globals[n] = v
+            inject_trace_func(f, set_vars)
+    
     def _set_lineno(self, i: int):
         """Sets the next line to be executed"""
 
@@ -184,6 +217,15 @@ class WithHack(object):
         probably do the same - the simplest way is to pass through the return
         value given by this base implementation.
         """
+        for n, v in self.__to_reset__.copy().items():
+            if v is self._missing_marker:
+                try:
+                    del self.__frame__.f_globals[n]
+                except KeyError:
+                    pass
+            else:
+                self.__frame__.f_globals[n] = v
+            del self.__to_reset__[n]
         self.__frame__ = None
         if exc_type is _ExitContext:
             return True

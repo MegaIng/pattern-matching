@@ -22,7 +22,7 @@ class _AutoLookupTranslator(ExampleTranslator):
 
 auto_lookup = _AutoLookupTranslator()
 
-class AutoLookup(TestCase):
+class TestAutoLookup(TestCase):
     def test_examples(self):
         for n, v in EXAMPLES.items():
             output = auto_lookup.run_example(v, {'match': match})

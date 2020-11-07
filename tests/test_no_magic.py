@@ -22,7 +22,7 @@ class _NoMagicTranslator(ExampleTranslator):
 
 mo_magic = _NoMagicTranslator()
 
-class NoMagic(TestCase):
+class TestNoMagic(TestCase):
     def test_examples(self):
         for n, v in EXAMPLES.items():
             output = mo_magic.run_example(v, {'Matcher': Matcher})
