@@ -4,7 +4,7 @@ import sys
 from typing import Any
 
 from pattern_matching.pattern_engine import str2pattern
-from pattern_matching.withhacks import load_name
+from pattern_matching.withhacks import lookup_name
 
 class match:
     """
@@ -25,16 +25,11 @@ class match:
     def __exit__(self, exc_type, exc_val, exc_tb):
         return False
 
-    def __getattribute__(self, item):
-        if item[:2] == item[-2:] == '__':
-            return super(match, self).__getattribute__(item)
-        if self.__matched__:
-            return self.__vars__[item]
-        else:
-            return super(match, self).__getattribute__(item)
+    def __getattr__(self, item):
+        return self.__vars__[item]
         
     def _get(self, name: str):
-        return load_name(self.__frame__, name)
+        return lookup_name(self.__frame__, name)
 
     def case(self, pattern):
         assert isinstance(pattern, str)

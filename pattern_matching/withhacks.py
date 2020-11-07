@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 """
 
 A subset of [withhacks](https://github.com/rfk/withhacks)
@@ -17,14 +19,13 @@ I found around the internet into a suite of re-usable components:
 
 """
 import sys
+
 try:
     import threading
 except ImportError:
     import dummy_threading as threading
 
-
-
-__all__ = ["inject_trace_func", "load_name"]
+__all__ = ["inject_trace_func", "lookup_name"]
 
 _trace_lock = threading.Lock()
 _orig_sys_trace = None
@@ -32,7 +33,7 @@ _orig_trace_funcs = {}
 _injected_trace_funcs = {}
 
 
-def _dummy_sys_trace(*args,**kwds):
+def _dummy_sys_trace(*args, **kwds):
     """Dummy trace function used to enable tracing."""
     pass
 
@@ -55,7 +56,7 @@ def _disable_tracing():
         sys.settrace(None)
 
 
-def inject_trace_func(frame,func):
+def inject_trace_func(frame, func):
     """Inject the given function as a trace function for frame.
 
     The given function will be executed immediately as the frame's execution
@@ -72,7 +73,7 @@ def inject_trace_func(frame,func):
     _injected_trace_funcs[frame].append(func)
 
 
-def _invoke_trace_funcs(frame,*args,**kwds):
+def _invoke_trace_funcs(frame, *args, **kwds):
     """Invoke any trace funcs that have been injected.
 
     Once all injected functions have been executed, the trace hooks are
@@ -90,7 +91,7 @@ def _invoke_trace_funcs(frame,*args,**kwds):
             frame.f_trace = _orig_trace_funcs.pop(frame)
 
 
-def load_name(frame,name):
+def lookup_name(frame, name):
     """Get the value of the named variable, as seen by the given frame.
 
     The name is first looked for in f_locals, then f_globals, and finally
@@ -107,7 +108,6 @@ def load_name(frame,name):
                 return frame.f_builtins[name]
             except KeyError:
                 raise NameError(name)
-
 
 
 class _ExitContext(Exception):
@@ -140,33 +140,24 @@ class WithHack(object):
     dont_execute = False
     must_execute = False
 
-    def _get_context_frame(self):
-        """Get the frame object corresponding to the with-statement context.
-
-        This is designed to work from within superclass method call. It finds
-        the first frame in which the variable "self" is not bound to this 
-        object.  While this heuristic rules out some strange uses of WithHack
-        objects (such as entering on object inside its own __exit__ method)
-        it should suffice in practise.
-        """
-        try:
-            return self.__frame
-        except AttributeError:
-            # Offset 2 accounts for this method, and the one calling it.
-            f = sys._getframe(2)
-            while f.f_locals.get("self") is self:
-                f = f.f_back
-            self.__frame = f
-            return f
-
-    def _set_context_locals(self, locals):
+    def _set_context_locals(self, locals: dict[str, Any]):
         """Set local variables in the with-statement context.
 
         The argument "locals" is a dictionary of name bindings to be inserted
         into the execution context of the with-statement.
         """
-        frame = self._get_context_frame()
-        inject_trace_func(frame, lambda frame: frame.f_locals.update(locals))
+        inject_trace_func(self.__frame__, lambda frame: frame.f_locals.update(locals))
+
+    def _set_lineno(self, i: int):
+        """Sets the next line to be executed"""
+
+        def callback(frame):
+            frame.f_lineno = i
+
+        inject_trace_func(self.__frame__, callback)
+
+    def _get_local(self, name: str):
+        return lookup_name(self.__frame__, name)
 
     def __enter__(self):
         """Enter the context of this WithHack.
@@ -175,9 +166,12 @@ class WithHack(object):
         code according to the values of "dont_execute" and "must_execute".
         Be sure to call the superclass version if you override it.
         """
+        f = sys._getframe(1)
+        while f.f_locals.get("self") is self:  # We need to adjust for super calls
+            f = f.f_back
+        self.__frame__ = f
         if self.dont_execute and not self.must_execute:
-            frame = self._get_context_frame()
-            inject_trace_func(frame, _exit_context)
+            inject_trace_func(self.__frame__, _exit_context)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -190,7 +184,7 @@ class WithHack(object):
         probably do the same - the simplest way is to pass through the return
         value given by this base implementation.
         """
-        self.__frame = None
+        self.__frame__ = None
         if exc_type is _ExitContext:
             return True
         else:

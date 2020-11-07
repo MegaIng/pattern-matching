@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, InitVar, is_dataclass
 from functools import lru_cache
@@ -248,6 +249,12 @@ class Lark2Pattern(Transformer[Pattern]):
     def pos(self, *children: Pattern):
         return children
     
+    def keyw(self, name: Token, p: Pattern):
+        return name.value, p
+
+    def keyws(self, *children: tuple[str, Pattern]):
+        return children
+    
     def arguments(self, *ch):
         if len(ch) == 2:
             pos, kw = ch
@@ -258,7 +265,7 @@ class Lark2Pattern(Transformer[Pattern]):
         return pos, kw
 
     def class_pattern(self, cls, args):
-        return PtClass(cls, *args)
+        return PtClass(cls, *(args or ((), ())))
     
     def capture(self, name: Token):
         return PtCapture(name.value)
@@ -284,6 +291,12 @@ class Lark2Pattern(Transformer[Pattern]):
 
     def star_pattern(self, n: Token):
         return n.value
+    
+    def or_pattern(self, *opt: Pattern):
+        return PtOr(opt)
+    
+    def as_pattern(self, base, name: Token):
+        return PtCaptureAs(base, name.value)
 
 
 @lru_cache()

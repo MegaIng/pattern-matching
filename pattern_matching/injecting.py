@@ -4,7 +4,7 @@ import sys
 from typing import Any
 
 from pattern_matching.pattern_engine import str2pattern
-from pattern_matching.withhacks import WithHack, load_name
+from pattern_matching.withhacks import WithHack, lookup_name
 
 
 class match(WithHack):
@@ -17,18 +17,16 @@ class match(WithHack):
         self.value = value
 
     def __enter__(self):
-        self._set_context_locals({'__match_obj__': self})
-        self.__frame__ = self._get_context_frame()
         super(match, self).__enter__()
+        self._set_context_locals({'__match_obj__': self})
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._set_context_locals({'__match_obj__': None})
-        self.__frame__ = None
         return super(match, self).__exit__(exc_type, exc_val, exc_tb)
 
     def _get(self, name: str):
-        return load_name(self.__frame__, name)
+        return lookup_name(self.__frame__, name)
 
     def case(self, pattern):
         assert isinstance(pattern, str)
@@ -36,6 +34,7 @@ class match(WithHack):
         var = pt.match(self.value, self._get)
         if var is not None:
             self._set_context_locals(var)
+            print(var)
             return True
         else:
             return False
