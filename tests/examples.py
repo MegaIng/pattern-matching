@@ -105,10 +105,10 @@ Y=5
 Origin
 X=5
 """, ("Point", ))
-
-TEST_STAR = Example('TEST_STAR', """
-
-""", "")
+# 
+# TEST_STAR = Example('TEST_STAR', """
+# 
+# """, "")
 
 TEST_OR = Example('TEST_OR', """
 def do(command):

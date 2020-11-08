@@ -25,8 +25,6 @@ try:
 except ImportError:
     import dummy_threading as threading
 
-__all__ = ["inject_trace_func", "lookup_name"]
-
 _trace_lock = threading.Lock()
 _orig_sys_trace = None
 _orig_trace_funcs = {}
@@ -35,7 +33,6 @@ _injected_trace_funcs = {}
 
 def _dummy_sys_trace(*args, **kwds):
     """Dummy trace function used to enable tracing."""
-    pass
 
 
 def _enable_tracing():
@@ -48,6 +45,9 @@ def _enable_tracing():
     if _orig_sys_trace is None:
         sys.settrace(_dummy_sys_trace)
 
+# _enable_tracing()
+# assert _orig_sys_trace is None
+# _orig_sys_trace = _dummy_sys_trace
 
 def _disable_tracing():
     """Disable system-wide tracing, if we specifically switched it on."""
@@ -67,21 +67,29 @@ def inject_trace_func(frame, func):
         if frame.f_trace is not _invoke_trace_funcs:
             _orig_trace_funcs[frame] = frame.f_trace
             frame.f_trace = _invoke_trace_funcs
-            _injected_trace_funcs[frame] = []
+            _injected_trace_funcs[frame] = (frame.f_lineno, [])
             if len(_orig_trace_funcs) == 1:
                 _enable_tracing()
-    _injected_trace_funcs[frame].append(func)
+    _injected_trace_funcs[frame][1].append(func)
 
 
-def _invoke_trace_funcs(frame, *args, **kwds):
+def _invoke_trace_funcs(frame, mode, arg):
     """Invoke any trace funcs that have been injected.
 
     Once all injected functions have been executed, the trace hooks are
     removed.  Hopefully this will keep the overhead of all this madness
     to a minimum :-)
     """
+    # We want to to call the child functions at a point where assigning to `f_lineno` is valid.
+    # Sadly, sometimes python calls us to early for that when we are leaving a `__enter__` method (see bpo42286)
+    # Therefore we first check whether or not we are still on the line in which we were when inject_trace_func was called
+    # If we didn't move, we just don't do anything
+    if mode != 'line' or frame.f_lineno == _injected_trace_funcs[frame][0]:
+        if _orig_trace_funcs[frame] is not None:
+            _orig_trace_funcs[frame] = _orig_trace_funcs[frame](frame, mode, arg)
+        return _invoke_trace_funcs
     try:
-        for func in _injected_trace_funcs[frame]:
+        for func in _injected_trace_funcs[frame][1]:
             func(frame)
     finally:
         del _injected_trace_funcs[frame]
@@ -89,6 +97,8 @@ def _invoke_trace_funcs(frame, *args, **kwds):
             if len(_orig_trace_funcs) == 1:
                 _disable_tracing()
             frame.f_trace = _orig_trace_funcs.pop(frame)
+        if frame.f_trace is not None:
+            return frame.f_trace(frame, mode, arg)
 
 
 def lookup_name(frame, name):
@@ -217,6 +227,7 @@ class WithHack(object):
         probably do the same - the simplest way is to pass through the return
         value given by this base implementation.
         """
+        # register_opcode_debugger(self.__frame__)
         for n, v in self.__to_reset__.copy().items():
             if v is self._missing_marker:
                 try:

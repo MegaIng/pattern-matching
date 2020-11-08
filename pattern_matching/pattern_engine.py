@@ -303,3 +303,87 @@ class Lark2Pattern(Transformer[Pattern]):
 def str2pattern(s: str) -> Pattern:
     st = parser.parse(s)
     return Lark2Pattern().transform(st)
+
+
+class Ast2Pattern(ast.NodeVisitor):
+    def generic_visit(self, node: ast.AST):
+        raise NotImplementedError(f"Unknown construct {node}")
+
+    def visit_Call(self, node: ast.Call) -> Any:
+        assert isinstance(node.func, ast.Name)
+        n = PtValue((node.func.id,))
+        args = tuple(self.visit(a) for a in node.args)
+        kwargs = tuple((k.arg, self.visit(k.value)) for k in node.keywords)
+        return PtClass(n, args, kwargs)
+
+    def visit_Constant(self, node: ast.Constant) -> Any:
+        return PtLiteral(node.value)
+
+    def visit_List(self, node: ast.List) -> Any:
+        cur = pre = []
+        post = []
+        star = None
+        for a in node.elts:
+            if not isinstance(a, ast.Starred):
+                cur.append(self.visit(a))
+            else:
+                if cur is post:
+                    raise ValueError("Multiple stars in a list")
+                else:
+                    cur = post
+                assert isinstance(a.value, ast.Name), a.value
+                star = a.value.id
+        if star is None:
+            return PtFixedSequence(tuple(pre))
+        else:
+            return PtVariableSequence(tuple(pre), star, tuple(post))
+
+    def visit_Name(self, node: ast.Name) -> Any:
+        return PtCapture(node.id) # yes, this includes `_`. I don't like the semantics distinctions
+    
+    def visit_Attribute(self, node: ast.Attribute) -> Any:
+        base = self.visit(node.value)
+        attr = node.attr
+        if isinstance(base, PtCapture):
+            return PtValue((base.name, attr))
+        else:
+            assert isinstance(base, PtValue)
+            return PtValue((*base.attributes, attr))
+    
+    def visit_Dict(self, node: ast.Dict) -> Any:
+        out = []
+        star = None
+        for k,v in zip(node.keys, node.values):
+            if k is None:
+                assert star is None
+                assert isinstance(v, ast.Name)
+                star = v.id
+            else:
+                k,v = self.visit(k), self.visit(v)
+                assert isinstance(k, PtConstant)
+                out.append((k, v))
+        return PtMapping(tuple(out), star)
+
+    def visit_Tuple(self, node: ast.Tuple) -> Any:
+        return self.visit_List(node)
+    
+    def visit_BinOp(self, node: ast.BinOp) -> Any:
+        if isinstance(node.op, ast.BitOr):
+            l,r = self.visit(node.left), self.visit(node.right)
+            opt = ()
+            if isinstance(l, PtOr):
+                opt = *opt, *l.options
+            else:
+                opt = *opt, l
+            if isinstance(r, PtOr):
+                opt = *opt, *r.options
+            else:
+                opt = *opt, r
+            return PtOr(opt)
+        elif isinstance(node.op, ast.MatMult):
+            assert isinstance(node.left, ast.Name) and node.left.id == "c"
+            return self.visit(node.right)
+
+
+def ast2pattern(a: ast.AST) -> Pattern:
+    return Ast2Pattern().visit(a)
