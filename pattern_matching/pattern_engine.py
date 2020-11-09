@@ -178,7 +178,7 @@ class PtVariableSequence(Pattern):
         return pre_out | {self.star: star_val} | post_out
 
 
-parser = Lark("""
+pattern_lark_parser = Lark("""
 ?start: seq_item "," _sequence -> sequence | as_pattern
 ?as_pattern: or_pattern ("as" NAME)?
 ?or_pattern: closed_pattern ("|" closed_pattern)*
@@ -301,7 +301,7 @@ class Lark2Pattern(Transformer[Pattern]):
 
 @lru_cache()
 def str2pattern(s: str) -> Pattern:
-    st = parser.parse(s)
+    st = pattern_lark_parser.parse(s)
     return Lark2Pattern().transform(st)
 
 
@@ -383,6 +383,11 @@ class Ast2Pattern(ast.NodeVisitor):
         elif isinstance(node.op, ast.MatMult):
             assert isinstance(node.left, ast.Name) and node.left.id == "c"
             return self.visit(node.right)
+    
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> Any:
+        t, v = node.target, self.visit(node.value)
+        assert isinstance(t, ast.Name)
+        return PtCaptureAs(v, t.id)
 
 
 def ast2pattern(a: ast.AST) -> Pattern:

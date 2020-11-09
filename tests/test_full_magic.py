@@ -4,15 +4,70 @@ import unittest
 from pathlib import Path
 from textwrap import indent
 
+from lark import v_args
+from lark.visitors import Transformer
+
 from tests.examples import EXAMPLES, ExampleTranslator
 from pattern_matching.full_magic import match
+from pattern_matching.pattern_engine import pattern_lark_parser
 
+
+@v_args(inline=True)
+class PEP634_TO_PY(Transformer):
+    def __default__(self, data, children, meta):
+        raise NotImplementedError((data, children))
+    
+    def _unchanged(self, t):
+        return t.value
+    
+    number = capture = string = _unchanged
+    
+    def value(self, *a):
+        return '.'.join(a)
+    
+    def sequence(self, *c):
+        return '['+ ', '.join(c) + ']'
+    
+    def keyw(self, n, v):
+        return f"{n}={v}"
+    
+    def keyws(self, *a):
+        return ', '.join(a)
+
+    def arguments(self, *c):
+        if len(c) == 2 and c[1] is None:
+            c = c[:1]
+        return ', '.join(c)
+
+    def pos(self, *c):
+        return ', '.join(c)
+
+    def class_pattern(self, name, args):
+        if args is None:
+            return f"{name}()"
+        else:
+            return f"{name}({args})"
+    
+    def or_pattern(self, *args):
+        return ' | '.join(args)
+    
+    def mapping_item(self, k, v):
+        return f"{k}: {v}"
+
+    def mapping(self, *c):
+        return '{'+ ', '.join(c) + '}'
+    
+    def as_pattern(self, base, name):
+        return f"({name} := ({base}))"
+    
+pep634_to_py = PEP634_TO_PY()
 
 class _FullMagicTranslator(ExampleTranslator):
     def match(self, expr: str, used_names: tuple[str, ...]) -> str:
         return f"with match({expr}):\n"
     
     def case(self, pattern: str, is_first_case: bool) -> str:
+        pattern = pep634_to_py.transform(pattern_lark_parser.parse(pattern))
         if is_first_case:
             return f"    if c@ {pattern}:\n"
         else:
@@ -44,8 +99,6 @@ class TestFullMagicGenerated(TestCase):
         self.assertMultiLineEqual(expected, buf.getvalue())
 ''')
         for n, e in EXAMPLES.items():
-            if n == 'TEST_AS':
-                continue
             f.write(f'''
     def {n.lower()}(self):\n
         with self.assertOutputs({e.output!r}):
