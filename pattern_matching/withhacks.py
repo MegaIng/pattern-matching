@@ -147,8 +147,6 @@ class WithHack(object):
     want to skip the block to be combined with hacks that need it executed.
     """
 
-    dont_execute = False
-    must_execute = False
     _missing_marker = object()
     
     def __init__(self):
@@ -201,6 +199,9 @@ class WithHack(object):
 
     def _get_local(self, name: str):
         return lookup_name(self.__frame__, name)
+    
+    def _dont_execute(self):
+        inject_trace_func(self.__frame__, _exit_context)
 
     def __enter__(self):
         """Enter the context of this WithHack.
@@ -213,8 +214,6 @@ class WithHack(object):
         while f.f_locals.get("self") is self:  # We need to adjust for super calls
             f = f.f_back
         self.__frame__ = f
-        if self.dont_execute and not self.must_execute:
-            inject_trace_func(self.__frame__, _exit_context)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

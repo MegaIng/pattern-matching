@@ -105,10 +105,26 @@ Y=5
 Origin
 X=5
 """, ("Point", ))
-# 
-# TEST_STAR = Example('TEST_STAR', """
-# 
-# """, "")
+
+TEST_STAR = Example('TEST_STAR', """
+def sort(a):
+    match a:
+        case []:
+            return []
+        case [a]:
+            return [$a]
+        case [a, b]:
+            return [$a, $b] if $a < $b else [$b, $a]
+        case [a, *ele]:
+            return sort([e for e in $ele if e < $a]) + [$a] + sort([e for e in $ele if e >= $a])
+print(sort([1, 2, 3]))
+print(sort([1, 3, 2]))
+print(sort([4, 1, 3, 2]))
+""", """\
+[1, 2, 3]
+[1, 2, 3]
+[1, 2, 3, 4]
+""")
 
 TEST_OR = Example('TEST_OR', """
 def do(command):
@@ -211,6 +227,44 @@ Invalid action {'sound': 'hello_world.ogg'}
 Invalid action {'sleep': '50000'}
 Unsupported audio format
 """, ('str', 'float'))
+
+TEST_FALLTHROUGH = Example('TEST_FALLTHROUGH', """
+for i in range(1, 8):
+    match i:
+        case 1:
+            print(1)
+            continue
+        case 2|3|4:
+            print(2, 3, 4)
+            continue
+    print(">4")
+""", """\
+1
+2 3 4
+2 3 4
+2 3 4
+>4
+>4
+>4
+""")
+TEST_FALLTHROUGH_2 = Example('TEST_FALLTHROUGH_2', """
+def classify(i):
+    match i:
+        case 1:
+            print(1)
+        case 2|3|4:
+            print(2, 3, 4)
+
+classify(1)
+classify(2)
+classify(4)
+classify(8)
+""", """\
+1
+2 3 4
+2 3 4
+""")
+
 
 EXAMPLES: dict[str, Example] = {k: v for k, v in locals().items() if isinstance(v, Example)}
 

@@ -4,7 +4,7 @@ import ast
 import sys
 from dataclasses import dataclass
 from inspect import getsource
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from pattern_matching.pattern_engine import Pattern, ast2pattern
 from pattern_matching.withhacks import WithHack
@@ -13,8 +13,6 @@ _matcher_cache: dict[tuple[str, int], _Matcher] = {}
 
 
 class match(WithHack):
-    must_execute = True
-    
     def __init__(self, value: Any):
         super(match, self).__init__()
         self.value = value
@@ -30,7 +28,10 @@ class match(WithHack):
             m = _matcher_cache[fn, fl] = _parse_match_stmt(c, fl)
         l, v = m.match(self.value, self._get_local)
         self._set_context_locals(v)
-        self._set_lineno(l)
+        if l is None:
+            self._dont_execute()
+        else:
+            self._set_lineno(l)
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -41,7 +42,7 @@ class match(WithHack):
 @dataclass(frozen=True)
 class _Matcher:
     cases: tuple[tuple[Pattern, int], ...]
-    else_body: int
+    else_body: Optional[int] # None meaning just exit the with statement
 
     def match(self, val: Any(), get: Callable[[str], Any]) -> tuple[int, dict[str, Any]]:
         for p, l in self.cases:
@@ -72,7 +73,7 @@ def _parse_match_stmt(code: str, with_start_line: int) -> _Matcher:
         cases.append((ast2pattern(i.test), i.body[0].lineno))
         b = i.orelse
     if len(b) == 0:
-        else_body = w.end_lineno + 1
+        else_body = None
     else:
         else_body = b[0].lineno
     return _Matcher(tuple(cases), else_body)

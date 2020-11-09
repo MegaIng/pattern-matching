@@ -25,6 +25,9 @@ class PEP634_TO_PY(Transformer):
     def value(self, *a):
         return '.'.join(a)
     
+    def star_pattern(self, n):
+        return f"*{n}"
+    
     def sequence(self, *c):
         return '['+ ', '.join(c) + ']'
     
