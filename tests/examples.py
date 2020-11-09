@@ -75,8 +75,6 @@ class Point:
     x: int
     y: int
     
-    __match_args__ = ('x', 'y')
-    
     def __init__(self, x: int, y: int):
         self.x = x
         self.y = y
@@ -88,6 +86,42 @@ def where_is(point):
         case Point(x=0, y=y):
             print(f"Y={$y}")
         case Point(x=x, y=0):
+            print(f"X={$x}")
+        case Point():
+            print("Somewhere else")
+        case _:
+            print("Not a point")
+where_is(Point(5, 5))
+where_is(5)
+where_is(Point(0, 5))
+where_is(Point(0, 0))
+where_is(Point(5, 0))
+""", """\
+Somewhere else
+Not a point
+Y=5
+Origin
+X=5
+""", ("Point", ))
+
+TEST_CLASS_2 = Example('TEST_CLASS_2', """
+class Point:
+    x: int
+    y: int
+    
+    __match_args__ = ('x', 'y')
+    
+    def __init__(self, x: int, y: int):
+        self.x = x
+        self.y = y
+
+def where_is(point):
+    match point:
+        case Point(0, 0):
+            print("Origin")
+        case Point(0, y):
+            print(f"Y={$y}")
+        case Point(x, 0):
             print(f"X={$x}")
         case Point():
             print("Somewhere else")
@@ -265,6 +299,82 @@ classify(8)
 2 3 4
 2 3 4
 """)
+
+TEST_DATACLASS = Example('TEST_DATACLASS', """
+from dataclasses import dataclass
+from typing import Union
+
+@dataclass
+class Node:
+    data: str
+    children: list[Union[str, 'Node']]
+
+@dataclass
+class Leaf:
+    data: int
+
+
+def eval(n):
+    match n:
+        case Leaf(a):
+            return $a
+        case Node("+", [left, right]):
+            return eval($left) + eval($right)
+
+print(eval(Leaf(1)))
+print(eval(Node('+', [Leaf(5), Leaf(6)])))
+""", """\
+1
+11
+""", ('Node', 'Leaf'))
+
+TEST_NAMED_TUPLE = Example('TEST_NAMED_TUPLE', """
+from collections import namedtuple
+from typing import Union
+
+Node = namedtuple('Node', 'data left right')
+
+def eval(n):
+    match n:
+        case Node("+", left, right):
+            return eval($left) + eval($right)
+        case Node() as n:
+            raise ValueError($n)
+        case a:
+            return $a
+
+print(eval(1))
+print(eval(Node('+', 5, 6)))
+""", """\
+1
+11
+""", ('Node',))
+
+TEST_NAMED_TUPLE_2 = Example('TEST_NAMED_TUPLE_2', """
+from typing import NamedTuple
+from typing import Union
+
+class Node(NamedTuple):
+    data: str
+    left: Union['Node', int]
+    right: Union['Node', int]
+
+def eval(n):
+    match n:
+        case Node("+", left, right):
+            return eval($left) + eval($right)
+        case Node() as n:
+            raise ValueError($n)
+        case a:
+            return $a
+
+print(eval(1))
+print(eval(Node('+', 5, 6)))
+""", """\
+1
+11
+""", ('Node',))
+
 
 
 EXAMPLES: dict[str, Example] = {k: v for k, v in locals().items() if isinstance(v, Example)}

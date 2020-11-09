@@ -55,7 +55,7 @@ class Matcher:
         try:
             return self.__names__[name]
         except KeyError:
-            raise NameError
+            raise NameError(name)
 
     def __call__(self, value: Any):
         return _Match(self, value)
