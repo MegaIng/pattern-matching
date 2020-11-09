@@ -247,6 +247,7 @@ for i in range(1, 8):
 >4
 >4
 """)
+
 TEST_FALLTHROUGH_2 = Example('TEST_FALLTHROUGH_2', """
 def classify(i):
     match i:

@@ -99,7 +99,7 @@ class PtClass(Pattern):
             res = pat.match(val, get)
             if res is None:
                 return None
-            out |= res
+            out.update(res)
         return out
 
 
@@ -110,7 +110,7 @@ def _match_all(pts: tuple[Pattern, ...], value: Any, get) -> Optional[dict[str, 
         if cvar is None:
             return None
         else:
-            out |= cvar
+            out.update(cvar)
     return out
 
 
@@ -147,7 +147,7 @@ class PtMapping(Pattern):
             cvar = vp.match(val, get)
             if cvar is None:
                 return None
-            out |= cvar
+            out.update(cvar)
             used.add(kp)
         if self.star is not None:
             out[self.star] = {k: v for k, v in value.items() if k not in used}
@@ -175,7 +175,7 @@ class PtVariableSequence(Pattern):
         if post_out is None:
             return None
 
-        return pre_out | {self.star: star_val} | post_out
+        return {**pre_out,self.star: star_val, **post_out}
 
 
 pattern_lark_parser = Lark("""
@@ -224,7 +224,7 @@ NAME: /[a-zA-Z_][a-zA-Z_0-9]*/
 
 
 @v_args(inline=True)
-class Lark2Pattern(Transformer[Pattern]):
+class Lark2Pattern(Transformer):
     def __default__(self, data, children, meta):
         raise NotImplementedError((data, children, meta))
     

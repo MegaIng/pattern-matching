@@ -108,8 +108,11 @@ class TestFullMagicGenerated(TestCase):
 {indent(full_magic.translate(e), ' ' * 12)}
 ''')
 
-_generate_tests()
-TestFullMagicGenerated = __import__(GENERATED_MODULE_NAME).TestFullMagicGenerated
+try:
+    _generate_tests()
+    TestFullMagicGenerated = getattr(__import__('tests.' + GENERATED_MODULE_NAME), GENERATED_MODULE_NAME).TestFullMagicGenerated
+except SyntaxError:
+    TestFullMagicGenerated = None
 
 if __name__ == '__main__':
     unittest.main()
