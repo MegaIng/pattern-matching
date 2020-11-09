@@ -38,7 +38,7 @@ with match(event.get()) as m:
 Note how you have to specify which names you will be using, and how you always have to use `m.` to access the capture values.
 This is the so called `no_magic` implementation. This implementation will work even in Python3.7 and other implementations than CPython that support the same features as 3.7
 
-### auto_lookup
+#### auto_lookup
 
 If you don't want to specify which classes you will be using, but don't want to have the pattern matching messing with the locals, you can use `auto_lookup`
 
@@ -63,11 +63,11 @@ You still have to use `m.`, but at least you don't have to duplicate the class n
 
 Note that this might have weird edge cases and fail for some reason sometimes. (Most notably conflict between what you think is visible in a function vs. what really is)
 
-### injecting
+#### injecting
 
 This is for those who don't want to type `m.` everywhere.
 ```python
-from pattern_matching.injecting import match
+from pattern_matching.injecting import match, case
 
 
 with match(event.get()):
@@ -90,7 +90,7 @@ This is will only work on Python3.9. It might also randomly break with debuggers
 Note that this heavily suffers from the problem of what locals are defined and what aren't, e.g. the problem of where names are looked up.
 
 
-### full_magic
+#### full_magic
 
 This is the one that is as close as possible to the syntax proposed in PEP-634
 
@@ -146,6 +146,23 @@ with match(n):
         print("Bigger than three")
 ```
  This doesn't have to be done always, but it is a good first attempt if you get weird error messages.
+
+
+### Guards
+
+Guards are not directly implemented, but are supported via a simple `and` that can be added to a case:
+
+```python
+from pattern_matching.injecting import match, case
+
+with match(p):
+    if case('(x, y)') and x == y:
+        print("X=Y, at", x)
+    else:
+        print("Not on a diagonal")
+```
+
+This works similar for all options
 
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)

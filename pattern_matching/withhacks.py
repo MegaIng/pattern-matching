@@ -80,6 +80,8 @@ class _FrameTracer:
                 exc_to_reraise = e
         with _trace_lock:
             del self.injected_functions[event]
+            if event == 'opcode':
+                self.frame.f_trace_opcodes = self.orig_trace_opcodes
             if len(self.injected_functions) > 0:
                 if exc_to_reraise is not None:
                     raise exc_to_reraise
