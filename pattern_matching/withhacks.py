@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass, field
+from types import FrameType
+from typing import Any, Callable, Optional, DefaultDict, Dict, ClassVar
 
 """
 
@@ -24,12 +26,10 @@ try:
     import threading
 except ImportError:
     import dummy_threading as threading
+from collections import defaultdict
 
 _trace_lock = threading.Lock()
 _orig_sys_trace = None
-_orig_trace_funcs = {}
-_injected_trace_funcs = {}
-
 
 def _dummy_sys_trace(*args, **kwds):
     """Dummy trace function used to enable tracing."""
@@ -45,9 +45,6 @@ def _enable_tracing():
     if _orig_sys_trace is None:
         sys.settrace(_dummy_sys_trace)
 
-# _enable_tracing()
-# assert _orig_sys_trace is None
-# _orig_sys_trace = _dummy_sys_trace
 
 def _disable_tracing():
     """Disable system-wide tracing, if we specifically switched it on."""
@@ -55,8 +52,60 @@ def _disable_tracing():
     if _orig_sys_trace is None:
         sys.settrace(None)
 
+@dataclass
+class _FrameTracer:
+    frame: FrameType
+    orig_function: Optional[Callable]
+    start_line: int
+    injected_functions: DefaultDict[str, list] = field(default_factory=lambda: defaultdict(list))
+    orig_trace_opcodes: bool = None
+    
+    trace_counter: ClassVar[int] = 0
+    
+    def __call__(self, frame, event, arg):
+        assert frame is self.frame
+        if self.orig_function is not None:
+            self.orig_function = self.orig_function(frame, event, arg)
+        if event == 'line' and frame.f_lineno == self.start_line:
+            # We want to to call the child functions at a point where assigning to `f_lineno` is valid.
+            # Sadly, sometimes python calls us to early for that when we are leaving a `__enter__` method (see bpo42286)
+            # Therefore we first check whether or not we are still on the line in which we were when inject_trace_func was called
+            # If we didn't move, we just don't do anything
+            return self
+        exc_to_reraise = None
+        for f in self.injected_functions[event]:
+            try:
+                f(frame)
+            except Exception as e:
+                exc_to_reraise = e
+        with _trace_lock:
+            del self.injected_functions[event]
+            if len(self.injected_functions) > 0:
+                if exc_to_reraise is not None:
+                    raise exc_to_reraise
+                return self
+            _FrameTracer.trace_counter -= 1
+            assert _FrameTracer.trace_counter >= 0
+            del _frame_tracer[frame]
+            self.frame = None
+            if _FrameTracer.trace_counter == 0:
+                _disable_tracing()
+            frame.f_trace = self.orig_function
+            if exc_to_reraise is not None:
+                raise exc_to_reraise
+            return self.orig_function
+    
+    def register_function(self, event: str, f: Callable):
+        if event == 'opcode':
+            if not self.injected_functions['opcode']:
+                self.orig_trace_opcodes = self.frame.f_trace_opcodes
+                self.frame.f_trace_opcodes = True
+        self.injected_functions[event].append(f)
 
-def inject_trace_func(frame, func):
+_frame_tracer: Dict[FrameType, _FrameTracer] = {}
+
+
+def inject_trace_func(frame, func, event='line'):
     """Inject the given function as a trace function for frame.
 
     The given function will be executed immediately as the frame's execution
@@ -64,41 +113,44 @@ def inject_trace_func(frame, func):
     things like modify frame.f_locals, frame.f_lineno and friends.
     """
     with _trace_lock:
-        if frame.f_trace is not _invoke_trace_funcs:
-            _orig_trace_funcs[frame] = frame.f_trace
-            frame.f_trace = _invoke_trace_funcs
-            _injected_trace_funcs[frame] = (frame.f_lineno, [])
-            if len(_orig_trace_funcs) == 1:
+        if frame not in _frame_tracer:
+            if len(_frame_tracer) == 0:
                 _enable_tracing()
-    _injected_trace_funcs[frame][1].append(func)
+            _frame_tracer[frame] = _FrameTracer(frame, frame.f_trace, frame.f_lineno)
+            frame.f_trace = _frame_tracer[frame]
+            _FrameTracer.trace_counter += 1
+        _frame_tracer[frame].register_function(event, func)
 
 
-def _invoke_trace_funcs(frame, mode, arg):
-    """Invoke any trace funcs that have been injected.
-
-    Once all injected functions have been executed, the trace hooks are
-    removed.  Hopefully this will keep the overhead of all this madness
-    to a minimum :-)
-    """
-    # We want to to call the child functions at a point where assigning to `f_lineno` is valid.
-    # Sadly, sometimes python calls us to early for that when we are leaving a `__enter__` method (see bpo42286)
-    # Therefore we first check whether or not we are still on the line in which we were when inject_trace_func was called
-    # If we didn't move, we just don't do anything
-    if mode != 'line' or frame.f_lineno == _injected_trace_funcs[frame][0]:
-        if _orig_trace_funcs[frame] is not None:
-            _orig_trace_funcs[frame] = _orig_trace_funcs[frame](frame, mode, arg)
-        return _invoke_trace_funcs
-    try:
-        for func in _injected_trace_funcs[frame][1]:
-            func(frame)
-    finally:
-        del _injected_trace_funcs[frame]
-        with _trace_lock:
-            if len(_orig_trace_funcs) == 1:
-                _disable_tracing()
-            frame.f_trace = _orig_trace_funcs.pop(frame)
-        if frame.f_trace is not None:
-            return frame.f_trace(frame, mode, arg)
+# def _invoke_trace_funcs(frame, event, arg):
+#     """Invoke any trace funcs that have been injected.
+# 
+#     Once all injected functions have been executed, the trace hooks are
+#     removed.  Hopefully this will keep the overhead of all this madness
+#     to a minimum :-)
+#     """
+#     if _orig_trace_funcs[frame] is not None: # We try to just wrap the original trace function
+#         _orig_trace_funcs[frame] = _orig_trace_funcs[frame](frame, event, arg)
+#         
+#     if event == 'line' and frame.f_lineno == _injected_trace_funcs[frame][0]:
+#         # We want to to call the child functions at a point where assigning to `f_lineno` is valid.
+#         # Sadly, sometimes python calls us to early for that when we are leaving a `__enter__` method (see bpo42286)
+#         # Therefore we first check whether or not we are still on the line in which we were when inject_trace_func was called
+#         # If we didn't move, we just don't do anything
+#         return _invoke_trace_funcs
+#     try:
+#         for func in _injected_trace_funcs[frame][1][event]:
+#             func(frame)
+#     finally:
+#         del _injected_trace_funcs[frame][1][event]
+#         if len(_injected_trace_funcs[frame][1]) == 0:
+#             del _injected_trace_funcs[frame]
+#             with _trace_lock:
+#                 if len(_orig_trace_funcs) == 1:
+#                     _disable_tracing()
+#                 frame.f_trace = _orig_trace_funcs.pop(frame)
+#             if frame.f_trace is not None:
+#                 return frame.f_trace(frame, event, arg)
 
 
 def lookup_name(frame, name):
@@ -174,7 +226,7 @@ class WithHack(object):
         
         f = self.__frame__
         if f.f_locals is f.f_globals: # we are in global scope. We don't need to worry and the old approach works
-            inject_trace_func(f, lambda frame: frame.f_locals.update(locals))
+            inject_trace_func(f, lambda frame: frame.f_locals.update(locals), 'opcode')
         else:
             c = f.f_code
             lcl_vars = set(c.co_varnames)
@@ -187,7 +239,7 @@ class WithHack(object):
                         frame.f_locals[n] = v
                     else:
                         frame.f_globals[n] = v
-            inject_trace_func(f, set_vars)
+            inject_trace_func(f, set_vars, 'opcode')
     
     def _set_lineno(self, i: int):
         """Sets the next line to be executed"""

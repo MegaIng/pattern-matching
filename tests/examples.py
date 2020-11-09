@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
+
+from lark import v_args
+from lark.visitors import Transformer
 
 
 @dataclass(frozen=True)
@@ -404,6 +408,27 @@ great python
 normal flies fruit flies
 """, ('Tree', 'Token'))
 
+TEST_GUARD = Example('TEST_GUARD', """
+def is_diagonal(p):
+    match p:
+        case (x, y) if $x == $y:
+            return True
+        case (_, _):
+            return False
+
+print(is_diagonal((0, 0)))
+print(is_diagonal((0, 1)))
+print(is_diagonal((1, 0)))
+print(is_diagonal((1, 1)))
+print(is_diagonal(0))
+""", """\
+True
+False
+False
+True
+None
+""")
+
 
 EXAMPLES: dict[str, Example] = {k: v for k, v in locals().items() if isinstance(v, Example)}
 
@@ -452,3 +477,61 @@ class ExampleTranslator(ABC):
             print(f"------------------------------------------------------------------------------------")
             raise
         return ''.join(out)
+
+@v_args(inline=True)
+class Rebuild(Transformer):
+    def __default__(self, data, children, meta):
+        raise TypeError((data, children))
+    
+    def _unchanged(self, t):
+        return t.value
+    
+    number = capture = string = _unchanged
+    
+    def value(self, *a):
+        return '.'.join(a)
+    
+    def star_pattern(self, n):
+        return f"*{n}"
+    
+    def sequence(self, *c):
+        return '['+ ', '.join(c) + ']'
+    
+    def keyw(self, n, v):
+        return f"{n}={v}"
+    
+    def keyws(self, *a):
+        return ', '.join(a)
+
+    def arguments(self, *c):
+        if len(c) == 2 and c[1] is None:
+            c = c[:1]
+        return ', '.join(c)
+
+    def pos(self, *c):
+        return ', '.join(c)
+
+    def class_pattern(self, name, args):
+        if args is None:
+            return f"{name}()"
+        else:
+            return f"{name}({args})"
+    
+    def or_pattern(self, *args):
+        return ' | '.join(args)
+    
+    def mapping_item(self, k, v):
+        return f"{k}: {v}"
+
+    def mapping(self, *c):
+        return '{'+ ', '.join(c) + '}'
+    
+    def as_pattern(self, base, name):
+        return f"{base} as {name}"
+    
+    def start(self, pat, guard):
+        if guard is not None:
+            return f"{pat} if {guard}"
+        else:
+            return pat
+    

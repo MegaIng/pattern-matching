@@ -1,0 +1,5 @@
+dist/
+*.tmp
+*.egg-info
+/tests/generated_test_full_magic.py
+.coverage

@@ -10,8 +10,6 @@ from pattern_matching.withhacks import WithHack, lookup_name
 class match(WithHack):
     """
     A fully magic match statement that automatically injects variables into the frame.
-    
-    Strongly discourage for anything but curiosity.
     """
     def __init__(self, value: Any):
         super(match, self).__init__()
@@ -31,7 +29,8 @@ class match(WithHack):
 
     def case(self, pattern):
         assert isinstance(pattern, str)
-        pt = str2pattern(pattern)
+        pt, g = str2pattern(pattern)
+        assert g is None
         var = pt.match(self.value, self._get)
         if var is not None:
             self._set_context_locals(var)

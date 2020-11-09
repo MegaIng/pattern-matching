@@ -24,9 +24,12 @@ class _Match:
 
     def case(self, pattern: str):
         assert isinstance(pattern, str)
-        pt = str2pattern(pattern)
+        pt, g = str2pattern(pattern)
         var = pt.match(self.__value__, self.__matcher__._get)
         if var is not None:
+            if g is not None:
+                if not eval(g, self.__matcher__.__names__, var):
+                    return False
             self.__vars__ = var
             return True
         else:

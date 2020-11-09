@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, InitVar, is_dataclass
 from functools import lru_cache
 from itertools import zip_longest, takewhile
-from typing import Callable, Any, Iterable, Sequence, Optional, Mapping
+from typing import Callable, Any, Iterable, Sequence, Optional, Mapping, Generic, TypeVar
 
 from lark import Lark, Transformer, v_args, Token
 
@@ -179,7 +179,8 @@ class PtVariableSequence(Pattern):
 
 
 pattern_lark_parser = Lark(r"""
-?start: seq_item "," _sequence -> sequence | as_pattern
+?start: pat ["if" /.+/]
+?pat: seq_item "," _sequence -> sequence | as_pattern
 ?as_pattern: or_pattern ("as" NAME)?
 ?or_pattern: closed_pattern ("|" closed_pattern)*
 ?closed_pattern: literal
@@ -222,7 +223,7 @@ STRING: /"([^\\\\\n"]|\\\\.)*"/s
 NAME: /[a-zA-Z_][a-zA-Z_0-9]*/
 %import common.NUMBER
 %ignore " "+
-""", start='start', maybe_placeholders=True)
+""", start='start', parser='lalr', maybe_placeholders=True)
 
 
 @v_args(inline=True)
@@ -299,6 +300,9 @@ class Lark2Pattern(Transformer):
     
     def as_pattern(self, base, name: Token):
         return PtCaptureAs(base, name.value)
+    
+    def start(self, pat, guard):
+        return pat, guard
 
 
 @lru_cache()

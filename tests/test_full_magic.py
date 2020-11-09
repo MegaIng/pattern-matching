@@ -7,62 +7,22 @@ from textwrap import indent
 from lark import v_args
 from lark.visitors import Transformer
 
-from tests.examples import EXAMPLES, ExampleTranslator
+from tests.examples import EXAMPLES, ExampleTranslator, Rebuild
 from pattern_matching.full_magic import match
 from pattern_matching.pattern_engine import pattern_lark_parser
 
 
 @v_args(inline=True)
-class PEP634_TO_PY(Transformer):
-    def __default__(self, data, children, meta):
-        raise NotImplementedError((data, children))
-    
-    def _unchanged(self, t):
-        return t.value
-    
-    number = capture = string = _unchanged
-    
-    def value(self, *a):
-        return '.'.join(a)
-    
-    def star_pattern(self, n):
-        return f"*{n}"
-    
-    def sequence(self, *c):
-        return '['+ ', '.join(c) + ']'
-    
-    def keyw(self, n, v):
-        return f"{n}={v}"
-    
-    def keyws(self, *a):
-        return ', '.join(a)
-
-    def arguments(self, *c):
-        if len(c) == 2 and c[1] is None:
-            c = c[:1]
-        return ', '.join(c)
-
-    def pos(self, *c):
-        return ', '.join(c)
-
-    def class_pattern(self, name, args):
-        if args is None:
-            return f"{name}()"
-        else:
-            return f"{name}({args})"
-    
-    def or_pattern(self, *args):
-        return ' | '.join(args)
-    
-    def mapping_item(self, k, v):
-        return f"{k}: {v}"
-
-    def mapping(self, *c):
-        return '{'+ ', '.join(c) + '}'
-    
+class PEP634_TO_PY(Rebuild):
     def as_pattern(self, base, name):
         return f"({name} := ({base}))"
     
+    def start(self, pat, guard):
+        if guard is not None:
+            return f"{pat} and {guard}"
+        else:
+            return pat
+
 pep634_to_py = PEP634_TO_PY()
 
 class _FullMagicTranslator(ExampleTranslator):
@@ -108,11 +68,8 @@ class TestFullMagicGenerated(TestCase):
 {indent(full_magic.translate(e), ' ' * 12)}
 ''')
 
-try:
-    _generate_tests()
-    TestFullMagicGenerated = getattr(__import__('tests.' + GENERATED_MODULE_NAME), GENERATED_MODULE_NAME).TestFullMagicGenerated
-except SyntaxError:
-    TestFullMagicGenerated = None
+_generate_tests()
+TestFullMagicGenerated = getattr(__import__('tests.' + GENERATED_MODULE_NAME), GENERATED_MODULE_NAME).TestFullMagicGenerated
 
 if __name__ == '__main__':
     unittest.main()

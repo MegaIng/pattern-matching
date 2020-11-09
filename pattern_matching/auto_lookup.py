@@ -33,7 +33,8 @@ class match:
 
     def case(self, pattern):
         assert isinstance(pattern, str)
-        pt = str2pattern(pattern)
+        pt, g = str2pattern(pattern)
+        assert g is None
         var = pt.match(self.__value__, self._get)
         if var is not None:
             self.__matched__ = True
