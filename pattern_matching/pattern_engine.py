@@ -178,7 +178,7 @@ class PtVariableSequence(Pattern):
         return {**pre_out,self.star: star_val, **post_out}
 
 
-pattern_lark_parser = Lark("""
+pattern_lark_parser = Lark(r"""
 ?start: seq_item "," _sequence -> sequence | as_pattern
 ?as_pattern: or_pattern ("as" NAME)?
 ?or_pattern: closed_pattern ("|" closed_pattern)*
@@ -216,8 +216,10 @@ pos: as_pattern ("," as_pattern)*
 keyws: keyw ("," keyw)*
 keyw: NAME "=" as_pattern
 
+STRING: /"([^\\\\\n"]|\\\\.)*"/s
+      | /'([^\\\\\n']|\\\\.)*'/s
+
 NAME: /[a-zA-Z_][a-zA-Z_0-9]*/
-%import common.ESCAPED_STRING -> STRING
 %import common.NUMBER
 %ignore " "+
 """, start='start', maybe_placeholders=True)

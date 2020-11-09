@@ -375,6 +375,34 @@ print(eval(Node('+', 5, 6)))
 11
 """, ('Node',))
 
+TEST_LARK = Example('TEST_LARK', """
+from lark import Tree, Token, Lark
+
+parser = Lark('''
+start: noun VERB noun
+     | noun "is" ADJ
+
+VERB: "is"|"has"|"hate"
+
+noun: ADJ? NOUN+
+
+ADJ: "great"|"bad"|"normal"
+NOUN: "he"|"python"|"fruit"|"flies"
+%ignore " "
+''', parser='lalr', cache=True)
+
+def analyse(sentence):
+    match parser.parse(sentence).children:
+        case Tree(children=[noun]), adj:
+            print($adj, $noun)
+        case Tree(children=[noun]), Token("VERB", verb), Tree('noun', [Token("ADJ") as adj, *nouns]):
+            print($adj, $noun, *$nouns)
+analyse("python is great")
+analyse("flies hate normal fruit flies")
+""", """\
+great python
+normal flies fruit flies
+""", ('Tree', 'Token'))
 
 
 EXAMPLES: dict[str, Example] = {k: v for k, v in locals().items() if isinstance(v, Example)}
